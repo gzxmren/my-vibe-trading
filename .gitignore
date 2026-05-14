@@ -82,3 +82,6 @@ manual_*/
 
 # Agent tool aliases (auto-generated mirror of CLAUDE.md)
 AGENTS.md
+
+# Local workspace configs
+GEMINI.md
