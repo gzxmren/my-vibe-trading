@@ -60,6 +60,25 @@ agent/tests/test_e2e_*.py
 
 # Local working notes
 NOTES.md
+project_memory/
+data/
+reports/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+.env
+
+# Gemini CLI configs and tmp
+.gemini/
+
+# SQLite databases
+*.db
+*.sqlite3
+
+# Manual reports and runs
+manual_*/
 
 # Agent tool aliases (auto-generated mirror of CLAUDE.md)
 AGENTS.md
