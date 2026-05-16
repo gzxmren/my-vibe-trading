@@ -26,25 +26,27 @@ def analyze_single_trade(symbol: str, date_str: str, action: str, price: float) 
         
         latest = df.iloc[-1]
         
+        rsi_val = latest.get('RSI', None)
+        bias_val = latest.get('Bias20', None)
+        
         return {
             "symbol": symbol,
             "action": action,
             "exec_price": price,
-            "close_price": latest['Close'],
-            "rsi_14": latest.get('RSI', None),
-            "price_to_ma20_bias": latest.get('Bias20', None)
+            "close_price": float(latest['Close']) if pd.notna(latest['Close']) else None,
+            "rsi_14": float(rsi_val) if pd.notna(rsi_val) else None,
+            "price_to_ma20_bias": float(bias_val) if pd.notna(bias_val) else None
         }
     except Exception as e:
         return {"error": str(e)}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Trade Historian (Sensory Component)")
-    parser.add_argument("--symbol", type=str, help="Stock Symbol (e.g., AMD)")
-    parser.add_argument("--date", type=str, help="Trade Date (YYYY-MM-DD)")
-    parser.add_argument("--action", type=str, choices=["BUY", "SELL"])
-    parser.add_argument("--price", type=float, help="Execution Price")
+    parser.add_argument("--symbol", type=str, required=True, help="Stock Symbol (e.g., AMD)")
+    parser.add_argument("--date", type=str, required=True, help="Trade Date (YYYY-MM-DD)")
+    parser.add_argument("--action", type=str, required=True, choices=["BUY", "SELL"])
+    parser.add_argument("--price", type=float, required=True, help="Execution Price")
     
     args = parser.parse_args()
-    if args.symbol and args.date and args.action and args.price:
-        res = analyze_single_trade(args.symbol, args.date, args.action, args.price)
-        print(json.dumps(res, indent=2))
+    res = analyze_single_trade(args.symbol, args.date, args.action, args.price)
+    print(json.dumps(res, indent=2))
