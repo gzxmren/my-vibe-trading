@@ -1,0 +1,289 @@
+# Dynamic Options Strategy Generator Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build a dynamic quantitative options strategy generator that evaluates real-time Greeks/IV to rank complex strategies while strictly enforcing a no-naked-selling risk guard.
+
+**Architecture:** A standalone Python engine module under `scripts/gemini_engines/` and a corresponding Pytest file in the project root. It will feature isolated layers for Data Fetching, Strategy Construction, Scoring, Risk Guard, and CLI Output.
+
+**Tech Stack:** Python 3, `yfinance`, `pandas`, `pytest`.
+
+---
+
+### Task 1: Core Data Models and Risk Guard
+
+**Files:**
+- Create: `scripts/gemini_engines/dynamic_options_engine.py`
+- Create: `test_dynamic_options_engine.py`
+
+- [ ] **Step 1: Write the failing test for Risk Guard**
+
+```python
+import pytest
+from scripts.gemini_engines.dynamic_options_engine import OptionLeg, Strategy, RiskGuard
+
+def test_risk_guard_rejects_infinite_loss():
+    # A naked short call has infinite loss
+    short_call = OptionLeg(strike=100, option_type="call", action="sell", premium=5.0)
+    strategy = Strategy(name="Naked Short Call", legs=[short_call])
+    
+    assert RiskGuard.is_defined_risk(strategy) is False
+
+def test_risk_guard_accepts_defined_risk():
+    # A bear put spread has defined loss
+    long_put = OptionLeg(strike=100, option_type="put", action="buy", premium=5.0)
+    short_put = OptionLeg(strike=90, option_type="put", action="sell", premium=2.0)
+    strategy = Strategy(name="Bear Put Spread", legs=[long_put, short_put])
+    
+    assert RiskGuard.is_defined_risk(strategy) is True
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest test_dynamic_options_engine.py::test_risk_guard_rejects_infinite_loss -v`
+Expected: FAIL with "ModuleNotFoundError" or "ImportError"
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+from dataclasses import dataclass
+from typing import List
+
+@dataclass
+class OptionLeg:
+    strike: float
+    option_type: str  # 'call' or 'put'
+    action: str       # 'buy' or 'sell'
+    premium: float
+    implied_volatility: float = 0.0
+    open_interest: int = 0
+    
+@dataclass
+class Strategy:
+    name: str
+    legs: List[OptionLeg]
+    
+class RiskGuard:
+    @staticmethod
+    def is_defined_risk(strategy: Strategy) -> bool:
+        # A simple heuristic: count short calls/puts vs long calls/puts.
+        short_calls = sum(1 for leg in strategy.legs if leg.action == "sell" and leg.option_type == "call")
+        long_calls = sum(1 for leg in strategy.legs if leg.action == "buy" and leg.option_type == "call")
+        short_puts = sum(1 for leg in strategy.legs if leg.action == "sell" and leg.option_type == "put")
+        long_puts = sum(1 for leg in strategy.legs if leg.action == "buy" and leg.option_type == "put")
+        
+        # Every short must be covered by a corresponding long
+        if short_calls > long_calls: return False
+        if short_puts > long_puts: return False
+        return True
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest test_dynamic_options_engine.py -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add test_dynamic_options_engine.py scripts/gemini_engines/dynamic_options_engine.py
+git commit -m "feat(options): implement core data models and risk guard"
+```
+
+### Task 2: Risk and Reward Calculator
+
+**Files:**
+- Modify: `scripts/gemini_engines/dynamic_options_engine.py`
+- Modify: `test_dynamic_options_engine.py`
+
+- [ ] **Step 1: Write the failing test for calculator**
+
+```python
+from scripts.gemini_engines.dynamic_options_engine import StrategyCalculator
+
+def test_strategy_calculator_bear_put():
+    long_put = OptionLeg(strike=100, option_type="put", action="buy", premium=5.0)
+    short_put = OptionLeg(strike=90, option_type="put", action="sell", premium=2.0)
+    strategy = Strategy(name="Bear Put Spread", legs=[long_put, short_put])
+    
+    metrics = StrategyCalculator.calculate(strategy)
+    assert metrics["net_cost"] == 3.0
+    assert metrics["max_profit"] == 7.0 # width (10) - net_cost (3)
+    assert metrics["max_loss"] == 3.0
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest test_dynamic_options_engine.py::test_strategy_calculator_bear_put -v`
+Expected: FAIL
+
+- [ ] **Step 3: Write minimal implementation**
+
+```python
+class StrategyCalculator:
+    @staticmethod
+    def calculate(strategy: Strategy) -> dict:
+        net_premium = 0.0
+        for leg in strategy.legs:
+            if leg.action == "buy":
+                net_premium -= leg.premium
+            else:
+                net_premium += leg.premium
+                
+        # Simplified max profit/loss calculation assuming vertical spreads for now.
+        # Straddles/Iron Condors will need expanded logic here later, but this gets the spread working.
+        net_cost = abs(net_premium) if net_premium < 0 else 0
+        net_credit = net_premium if net_premium > 0 else 0
+        
+        # Calculate width of the spread
+        strikes = sorted([leg.strike for leg in strategy.legs])
+        width = strikes[-1] - strikes[0] if len(strikes) > 1 else 0
+        
+        if net_premium < 0: # Debit spread
+            max_loss = net_cost
+            max_profit = width - net_cost
+        else: # Credit spread
+            max_profit = net_credit
+            max_loss = width - net_credit
+
+        return {
+            "net_cost": round(net_cost, 2),
+            "net_credit": round(net_credit, 2),
+            "max_profit": round(max_profit, 2),
+            "max_loss": round(max_loss, 2)
+        }
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest test_dynamic_options_engine.py::test_strategy_calculator_bear_put -v`
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add test_dynamic_options_engine.py scripts/gemini_engines/dynamic_options_engine.py
+git commit -m "feat(options): implement spread risk reward calculator"
+```
+
+### Task 3: Data Fetching and Strategy Generation
+
+**Files:**
+- Modify: `scripts/gemini_engines/dynamic_options_engine.py`
+
+- [ ] **Step 1: Write the data fetcher and generator stub**
+
+```python
+import yfinance as yf
+from datetime import datetime, timedelta
+
+class OptionDataFetcher:
+    @staticmethod
+    def fetch_chain(ticker_symbol: str, target_days_out: int = 21):
+        ticker = yf.Ticker(ticker_symbol)
+        current_price = ticker.history(period="1d")['Close'].iloc[-1]
+        
+        expirations = ticker.options
+        if not expirations: return None, None, current_price
+        
+        target_date = datetime.now() + timedelta(days=target_days_out)
+        target_exp = min(expirations, key=lambda d: abs(datetime.strptime(d, '%Y-%m-%d') - target_date))
+        
+        return ticker.option_chain(target_exp), target_exp, current_price
+
+class StrategyGenerator:
+    @staticmethod
+    def generate_bear_put_spreads(chain, current_price: float) -> List[Strategy]:
+        puts = chain.puts
+        # Basic filter: ATM and OTM puts
+        atm_strike = round(current_price)
+        valid_puts = puts[puts['strike'] <= atm_strike + 5]
+        
+        strategies = []
+        # Create permutations of Bear Put Spreads
+        # (Simplified iteration for the plan)
+        for i, buy_leg_data in valid_puts.iterrows():
+            for j, sell_leg_data in valid_puts.iterrows():
+                if buy_leg_data['strike'] > sell_leg_data['strike']:
+                    buy_leg = OptionLeg(buy_leg_data['strike'], "put", "buy", buy_leg_data['lastPrice'], buy_leg_data['impliedVolatility'], buy_leg_data['openInterest'])
+                    sell_leg = OptionLeg(sell_leg_data['strike'], "put", "sell", sell_leg_data['lastPrice'], sell_leg_data['impliedVolatility'], sell_leg_data['openInterest'])
+                    strat = Strategy(f"Bear Put Spread {buy_leg.strike}/{sell_leg.strike}", [buy_leg, sell_leg])
+                    if RiskGuard.is_defined_risk(strat):
+                        strategies.append(strat)
+        return strategies
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add scripts/gemini_engines/dynamic_options_engine.py
+git commit -m "feat(options): implement yfinance data fetcher and spread generator"
+```
+
+### Task 4: Scoring Engine and CLI Output
+
+**Files:**
+- Modify: `scripts/gemini_engines/dynamic_options_engine.py`
+
+- [ ] **Step 1: Write the Scoring and Execution Logic**
+
+```python
+class ScoringEngine:
+    @staticmethod
+    def score_and_rank(strategies: List[Strategy]) -> List[dict]:
+        scored = []
+        for strat in strategies:
+            # Liquidity check
+            if any(leg.open_interest < 10 for leg in strat.legs):
+                continue
+                
+            metrics = StrategyCalculator.calculate(strat)
+            if metrics["max_loss"] <= 0: continue
+            
+            score = metrics["max_profit"] / metrics["max_loss"]
+            
+            scored.append({
+                "strategy": strat,
+                "metrics": metrics,
+                "score": score
+            })
+            
+        return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
+
+def main(ticker="SMH"):
+    print(f"Fetching options data for {ticker}...")
+    chain, exp_date, price = OptionDataFetcher.fetch_chain(ticker)
+    if not chain: return
+    
+    print(f"Current Price: ${price:.2f} | Target Expiry: {exp_date}\n")
+    
+    spreads = StrategyGenerator.generate_bear_put_spreads(chain, price)
+    top_3 = ScoringEngine.score_and_rank(spreads)
+    
+    print("=== TOP 3 STRATEGIES (Sorted by Risk/Reward Score) ===")
+    for rank, item in enumerate(top_3, 1):
+        strat = item["strategy"]
+        metrics = item["metrics"]
+        print(f"\n#{rank}: {strat.name}")
+        for leg in strat.legs:
+            print(f"  - {leg.action.upper()} {leg.strike} {leg.option_type.upper()} @ ${leg.premium:.2f} (IV: {leg.implied_volatility:.2f})")
+        print(f"  -> Max Risk: ${metrics['max_loss']*100:.2f} | Max Reward: ${metrics['max_profit']*100:.2f}")
+        print(f"  -> Score (RR): {item['score']:.2f}x")
+
+if __name__ == "__main__":
+    import sys
+    ticker = sys.argv[1] if len(sys.argv) > 1 else "SMH"
+    main(ticker)
+```
+
+- [ ] **Step 2: Manual Smoke Test**
+
+Run: `python scripts/gemini_engines/dynamic_options_engine.py SMH`
+Expected: Output showing top 3 Bear Put Spreads with formatted metrics.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add scripts/gemini_engines/dynamic_options_engine.py
+git commit -m "feat(options): implement scoring engine and CLI output"
+```
