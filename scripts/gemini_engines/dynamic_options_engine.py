@@ -1,7 +1,7 @@
 import yfinance as yf
 from datetime import datetime, timedelta
 from dataclasses import dataclass
-from typing import List
+from typing import List, Any
 
 @dataclass
 class OptionLeg:
@@ -71,7 +71,10 @@ class OptionDataFetcher:
     @staticmethod
     def fetch_chain(ticker_symbol: str, target_days_out: int = 21):
         ticker = yf.Ticker(ticker_symbol)
-        current_price = ticker.history(period="1d")['Close'].iloc[-1]
+        history = ticker.history(period="1d")
+        if history.empty:
+            return None, None, None
+        current_price = history['Close'].iloc[-1]
         
         expirations = ticker.options
         if not expirations: return None, None, current_price
@@ -83,7 +86,7 @@ class OptionDataFetcher:
 
 class StrategyGenerator:
     @staticmethod
-    def generate_bear_put_spreads(chain, current_price: float) -> List[Strategy]:
+    def generate_bear_put_spreads(chain: Any, current_price: float) -> List[Strategy]:
         puts = chain.puts
         # Basic filter: ATM and OTM puts
         atm_strike = round(current_price)
