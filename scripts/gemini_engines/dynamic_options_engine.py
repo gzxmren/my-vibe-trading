@@ -104,3 +104,51 @@ class StrategyGenerator:
                     if RiskGuard.is_defined_risk(strat):
                         strategies.append(strat)
         return strategies
+
+class ScoringEngine:
+    @staticmethod
+    def score_and_rank(strategies: List[Strategy]) -> List[dict]:
+        scored = []
+        for strat in strategies:
+            # Liquidity check
+            if any(leg.open_interest < 10 for leg in strat.legs):
+                continue
+                
+            metrics = StrategyCalculator.calculate(strat)
+            if metrics["max_loss"] <= 0: continue
+            
+            score = metrics["max_profit"] / metrics["max_loss"]
+            
+            scored.append({
+                "strategy": strat,
+                "metrics": metrics,
+                "score": score
+            })
+            
+        return sorted(scored, key=lambda x: x["score"], reverse=True)[:3]
+
+def main(ticker="SMH"):
+    print(f"Fetching options data for {ticker}...")
+    chain, exp_date, price = OptionDataFetcher.fetch_chain(ticker)
+    if not chain: return
+    
+    print(f"Current Price: ${price:.2f} | Target Expiry: {exp_date}\n")
+    
+    spreads = StrategyGenerator.generate_bear_put_spreads(chain, price)
+    top_3 = ScoringEngine.score_and_rank(spreads)
+    
+    print("=== TOP 3 STRATEGIES (Sorted by Risk/Reward Score) ===")
+    for rank, item in enumerate(top_3, 1):
+        strat = item["strategy"]
+        metrics = item["metrics"]
+        print(f"\n#{rank}: {strat.name}")
+        for leg in strat.legs:
+            print(f"  - {leg.action.upper()} {leg.strike} {leg.option_type.upper()} @ ${leg.premium:.2f} (IV: {leg.implied_volatility:.2f})")
+        print(f"  -> Max Risk: ${metrics['max_loss']*100:.2f} | Max Reward: ${metrics['max_profit']*100:.2f}")
+        print(f"  -> Score (RR): {item['score']:.2f}x")
+
+if __name__ == "__main__":
+    import sys
+    ticker = sys.argv[1] if len(sys.argv) > 1 else "SMH"
+    main(ticker)
+
