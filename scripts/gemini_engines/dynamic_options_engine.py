@@ -32,6 +32,9 @@ class RiskGuard:
 class StrategyCalculator:
     @staticmethod
     def calculate(strategy: Strategy) -> dict:
+        if len(strategy.legs) != 2:
+            raise NotImplementedError("Calculator currently only supports 2-leg vertical spreads.")
+
         net_premium = 0.0
         for leg in strategy.legs:
             if leg.action == "buy":

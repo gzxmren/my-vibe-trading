@@ -26,3 +26,21 @@ def test_strategy_calculator_bear_put():
     assert metrics["max_profit"] == 7.0 # width (10) - net_cost (3)
     assert metrics["max_loss"] == 3.0
 
+def test_strategy_calculator_bull_put():
+    short_put = OptionLeg(strike=100, option_type="put", action="sell", premium=5.0)
+    long_put = OptionLeg(strike=90, option_type="put", action="buy", premium=2.0)
+    strategy = Strategy(name="Bull Put Spread", legs=[short_put, long_put])
+    
+    metrics = StrategyCalculator.calculate(strategy)
+    assert metrics["net_credit"] == 3.0
+    assert metrics["max_profit"] == 3.0
+    assert metrics["max_loss"] == 7.0 # width (10) - net_credit (3)
+
+def test_strategy_calculator_guard_clause():
+    short_call = OptionLeg(strike=100, option_type="call", action="sell", premium=5.0)
+    strategy = Strategy(name="Naked Short Call", legs=[short_call])
+    
+    with pytest.raises(NotImplementedError, match="Calculator currently only supports 2-leg vertical spreads."):
+        StrategyCalculator.calculate(strategy)
+
+
